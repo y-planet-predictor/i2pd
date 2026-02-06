@@ -84,49 +84,58 @@ namespace data
 	 * @brief bootstrap from random server, retry 10 times
 	 * @return number of entries added to netDb
 	 */
-	int Reseeder::ReseedFromServers ()
+	int Reseeder::ReseedFromServers()
 	{
-		bool ipv6; i2p::config::GetOption("ipv6", ipv6);
-		bool ipv4; i2p::config::GetOption("ipv4", ipv4);
-		bool yggdrasil; i2p::config::GetOption("meshnets.yggdrasil", yggdrasil);
+	    bool ipv6, ipv4, yggdrasil;
+	    i2p::config::GetOption("ipv6", ipv6);
+	    i2p::config::GetOption("ipv4", ipv4);
+	    i2p::config::GetOption("meshnets.yggdrasil", yggdrasil);
 
-		std::vector<std::string> httpsReseedHostList;
-		if (ipv4 || ipv6)
-		{
-			std::string reseedURLs; i2p::config::GetOption("reseed.urls", reseedURLs);
-			if (!reseedURLs.empty ())
-				boost::split(httpsReseedHostList, reseedURLs, boost::is_any_of(","), boost::token_compress_on);
-		}
+	    std::vector<std::string> httpsServers;
+	    std::vector<std::string> yggServers;
 
-		std::vector<std::string> yggReseedHostList;
-		if (yggdrasil && !i2p::util::net::GetYggdrasilAddress ().is_unspecified ())
-		{
-			LogPrint (eLogInfo, "Reseed: Yggdrasil is supported");
-			std::string yggReseedURLs; i2p::config::GetOption("reseed.yggurls", yggReseedURLs);
-			if (!yggReseedURLs.empty ())
-				boost::split(yggReseedHostList, yggReseedURLs, boost::is_any_of(","), boost::token_compress_on);
-		}
+	    if (ipv4 || ipv6) {
+	        std::string urls;
+	        i2p::config::GetOption("reseed.urls", urls);
+	        if (!urls.empty())
+	            boost::split(httpsServers, urls, boost::is_any_of(","), boost::token_compress_on);
+	    }
 
-		if (httpsReseedHostList.empty () && yggReseedHostList.empty())
-		{
-			LogPrint (eLogWarning, "Reseed: No reseed servers specified");
-			return 0;
-		}
+	    if (yggdrasil && !i2p::util::net::GetYggdrasilAddress().is_unspecified()) {
+	        std::string yggUrls;
+	        i2p::config::GetOption("reseed.yggurls", yggUrls);
+	        if (!yggUrls.empty())
+	            boost::split(yggServers, yggUrls, boost::is_any_of(","), boost::token_compress_on);
+	    }
 
-		int reseedRetries = 0;
-		while (reseedRetries < 10)
-		{
-			auto ind = rand () % (httpsReseedHostList.size () + yggReseedHostList.size ());
-			bool isHttps = ind < httpsReseedHostList.size ();
-			std::string reseedUrl = isHttps ? httpsReseedHostList[ind] :
-				yggReseedHostList[ind - httpsReseedHostList.size ()];
-			reseedUrl += "i2pseeds.su3";
-			auto num = ReseedFromSU3Url (reseedUrl, isHttps);
-			if (num > 0) return num; // success
-			reseedRetries++;
-		}
-		LogPrint (eLogWarning, "Reseed: Failed to reseed from servers after 10 attempts");
-		return 0;
+	    // HTTPS servers (priority order)
+	    for (const auto& base : httpsServers) {
+	        if (base.empty()) continue;
+	        std::string url = base;
+	        if (url.back() != '/') url += '/';
+	        url += "i2pseeds.su3";
+
+	        int num = ReseedFromSU3Url(url, true);
+	        if (num > 0) return num;
+
+	        LogPrint(eLogWarning, "Reseed: HTTPS attempt failed for ", url);
+	    }
+
+	    // Yggdrasil servers (fallback)
+	    for (const auto& base : yggServers) {
+	        if (base.empty()) continue;
+	        std::string url = base;
+	        if (url.back() != '/') url += '/';
+	        url += "i2pseeds.su3";
+
+	        int num = ReseedFromSU3Url(url, false);
+	        if (num > 0) return num;
+
+	        LogPrint(eLogWarning, "Reseed: Yggdrasil attempt failed for ", url);
+	    }
+
+	    LogPrint(eLogCritical, "Reseed: All ", httpsServers.size() + yggServers.size(), " servers failed. Check your internet/VPN.");
+	    return 0;
 	}
 
 	/**
@@ -139,7 +148,7 @@ namespace data
 	    LogPrint (eLogInfo, "Reseed: Downloading SU3 from ", url);
 	    std::string su3 = isHttps ? HttpsRequest (url) : YggdrasilRequest (url);
 
-	    // РЈСЃРёР»РµРЅРЅР°СЏ РїСЂРѕРІРµСЂРєР° РЅР° "РјР°РіРёС‡РµСЃРєРёРµ Р±Р°Р№С‚С‹"
+	    // Усиленная проверка на "магические байты"
 	    if (su3.size() < 40 || memcmp(su3.data(), "I2Psu3", 6) != 0) 
 	    {
 	        if (su3.length() > 0)
@@ -147,10 +156,10 @@ namespace data
 	        else
 	            LogPrint(eLogWarning, "Reseed: Empty response from ", url);
 
-	        return 0; // Р’РѕР·РІСЂР°С‰Р°РµРј 0, С‡С‚РѕР±С‹ С†РёРєР» ReseedFromServers РїРµСЂРµС€РµР» Рє СЃР»РµРґСѓСЋС‰РµР№ СЃСЃС‹Р»РєРµ
+	        return 0; // Возвращаем 0, чтобы цикл ReseedFromServers перешел к следующей ссылке
 	    }
 
-	    // Р•СЃР»Рё РїСЂРѕРІРµСЂРєР° РїСЂРѕР№РґРµРЅР°, СЃРєР°СЂРјР»РёРІР°РµРј РїРѕС‚РѕРє РїР°СЂСЃРµСЂСѓ
+	    // Если проверка пройдена, скармливаем поток парсеру
 	    std::stringstream s(su3);
 	    return ProcessSU3Stream (s);
 	}
