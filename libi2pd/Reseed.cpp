@@ -136,18 +136,23 @@ namespace data
 	 */
 	int Reseeder::ReseedFromSU3Url (const std::string& url, bool isHttps)
 	{
-		LogPrint (eLogInfo, "Reseed: Downloading SU3 from ", url);
-		std::string su3 = isHttps ? HttpsRequest (url) : YggdrasilRequest (url);
-		if (su3.length () > 0)
-		{
-			std::stringstream s(su3);
-			return ProcessSU3Stream (s);
-		}
-		else
-		{
-			LogPrint (eLogWarning, "Reseed: SU3 download failed");
-			return 0;
-		}
+	    LogPrint (eLogInfo, "Reseed: Downloading SU3 from ", url);
+	    std::string su3 = isHttps ? HttpsRequest (url) : YggdrasilRequest (url);
+
+	    // Усиленная проверка на "магические байты"
+	    if (su3.size() < 40 || memcmp(su3.data(), "I2Psu3", 6) != 0) 
+	    {
+	        if (su3.length() > 0)
+	            LogPrint(eLogWarning, "Reseed: Invalid SU3 format or CAPTCHA from ", url);
+	        else
+	            LogPrint(eLogWarning, "Reseed: Empty response from ", url);
+
+	        return 0; // Возвращаем 0, чтобы цикл ReseedFromServers перешел к следующей ссылке
+	    }
+
+	    // Если проверка пройдена, скармливаем поток парсеру
+	    std::stringstream s(su3);
+	    return ProcessSU3Stream (s);
 	}
 
 	int Reseeder::ProcessSU3File (const char * filename)
