@@ -1020,6 +1020,12 @@ namespace transport
 			SendTerminationAndTerminate (eNTCP2Message3Error);
 			return;
 		}
+		if (ri.GetVersion () < i2p::data::NETDB_MIN_ALLOWED_VERSION && !ri.IsHighBandwidth ())
+		{
+			LogPrint (eLogInfo, "NTCP2: Router version ", ri.GetVersion (), " is too old in SessionConfirmed");
+			SendTerminationAndTerminate (eNTCP2Banned);
+			return;
+		}
 		// update RouterInfo in netdb
 		auto ri1 = i2p::data::netdb.AddRouterInfo (ri.GetBuffer (), ri.GetBufferLen ()); // ri1 points to one from netdb now
 		if (!ri1)
@@ -1084,6 +1090,12 @@ namespace transport
 		if (m_Server.AddNTCP2Session (shared_from_this (), true))
 		{
 			Established ();
+			if (ri1->GetCongestion () == i2p::data::RouterInfo::eRejectAll)
+			{
+				auto terminationTimeout = GetTerminationTimeout ()/2;
+				if (terminationTimeout < NTCP2_ESTABLISH_TIMEOUT) terminationTimeout = NTCP2_ESTABLISH_TIMEOUT;
+				SetTerminationTimeout (terminationTimeout);
+			}
 			ReceiveLength ();
 		}
 		else
@@ -1279,6 +1291,7 @@ namespace transport
 							if (remoteIdentity && remoteIdentity->GetIdentHash () == newRi->GetIdentHash ())
 								// peer's RouterInfo update
 								SetRemoteIdentity (newRi->GetIdentity ());
+							i2p::transport::transports.UpdatePeerParams (newRi);
 						}
 					}
 					else

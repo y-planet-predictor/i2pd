@@ -523,7 +523,8 @@ namespace data
 	{
 		auto r = std::make_shared<RouterInfo>(path);
 		if (r->GetRouterIdentity () && !r->IsUnreachable () && r->HasValidAddresses () &&
-			ts < r->GetTimestamp () + 24*60*60*NETDB_MAX_OFFLINE_EXPIRATION_TIMEOUT*1000LL) // too old
+			ts < r->GetTimestamp () + 24*60*60*NETDB_MAX_OFFLINE_EXPIRATION_TIMEOUT*1000LL && // too old
+			(r->GetVersion () >= NETDB_MIN_ALLOWED_VERSION || r->IsHighBandwidth ())) // old version
 		{
 			r->DeleteBuffer ();
 			if (m_RouterInfos.emplace (r->GetIdentHash (), r).second)
@@ -698,6 +699,8 @@ namespace data
 			{
 				// find & mark expired routers
 				if (!r->GetCompatibleTransports (true)) // non reachable by any transport
+					r->SetUnreachable (true);
+				else if (r->GetVersion () < NETDB_MIN_ALLOWED_VERSION && !r->IsHighBandwidth ()) // too old
 					r->SetUnreachable (true);
 				else if (ts + NETDB_EXPIRATION_TIMEOUT_THRESHOLD*1000LL < r->GetTimestamp ())
 				{
@@ -1162,6 +1165,7 @@ namespace data
 				return !router->IsHidden () && router != compatibleWith &&
 					(reverse ? (compatibleWith->IsReachableFrom (*router) && router->GetCompatibleTransports (true)):
 						router->IsReachableFrom (*compatibleWith)) && !router->IsNAT2NATOnly (*compatibleWith) &&
+					router->GetVersion () >= NETDB_MIN_ALLOWED_VERSION &&
 					router->IsECIES () && !router->IsHighCongestion (clientTunnel) &&
 					(!i2p::transport::transports.IsCheckReserved () || !router->IsSameSubnet (*compatibleWith)) &&
 					(!checkIsReal || router->GetProfile ()->IsReal ()) &&

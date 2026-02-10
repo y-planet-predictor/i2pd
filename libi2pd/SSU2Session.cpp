@@ -1177,6 +1177,11 @@ namespace transport
 			LogPrint (eLogError, "SSU2: RouterInfo in SessionConfirmed is from future for ", (ri->GetTimestamp () - ts)/1000LL, " seconds");
 			return false;
 		}
+		if (ri->GetVersion () < i2p::data::NETDB_MIN_ALLOWED_VERSION && !ri->IsHighBandwidth ())
+		{
+			LogPrint (eLogInfo, "SSU2: Router version ", ri->GetVersion (), " is too old in SessionConfirmed");
+			return false;
+		}
 		// update RouterInfo in netdb
 		auto ri1 = i2p::data::netdb.AddRouterInfo (ri->GetBuffer (), ri->GetBufferLen ()); // ri points to one from netdb now
 		if (!ri1)
@@ -1249,8 +1254,14 @@ namespace transport
 
 		// handle other blocks
 		HandlePayload (decryptedPayload.data () + riSize + 3, decryptedPayload.size () - riSize - 3);
-		Established ();
 
+		Established ();
+		if (ri->GetCongestion () == i2p::data::RouterInfo::eRejectAll)
+		{
+			auto terminationTimeout = GetTerminationTimeout ()/2;
+			if (terminationTimeout < SSU2_CONNECT_TIMEOUT) terminationTimeout = SSU2_CONNECT_TIMEOUT;
+			SetTerminationTimeout (terminationTimeout);
+		}
 		SendQuickAck ();
 
 		return true;
@@ -1761,6 +1772,7 @@ namespace transport
 						m_RelayTag = 0; // not longer introducer
 				}
 			}
+			i2p::transport::transports.UpdatePeerParams (newRi);
 		}
 	}
 

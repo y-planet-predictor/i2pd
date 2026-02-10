@@ -1,5 +1,5 @@
 /*
-* Copyright (c) 2022-2025, The PurpleI2P Project
+* Copyright (c) 2022-2026, The PurpleI2P Project
 *
 * This file is part of Purple i2pd project and licensed under BSD3
 *
@@ -615,6 +615,7 @@ namespace transport
 		while (it != m_Sessions.end ())
 		{
 			if (it->second->IsEstablished () && (it->second->GetRemotePeerTestTransports () & remoteTransports) &&
+				it->second->GetRemoteVersion () >= i2p::data::NETDB_MIN_PEER_TEST_VERSION &&
 			    it->second->GetRemoteIdentity ()->GetIdentHash () != excluded)
 				return it->second;
 			it++;
@@ -624,6 +625,7 @@ namespace transport
 		while (it != m_Sessions.end () && ind)
 		{
 			if (it->second->IsEstablished () && (it->second->GetRemotePeerTestTransports () & remoteTransports) &&
+				it->second->GetRemoteVersion () >= i2p::data::NETDB_MIN_PEER_TEST_VERSION &&
 			    it->second->GetRemoteIdentity ()->GetIdentHash () != excluded)
 				return it->second;
 			it++; ind--;
@@ -773,12 +775,18 @@ namespace transport
 				!i2p::transport::transports.IsBanned (senderEndpoint.address ()))
 			{
 				// assume new incoming session
-				auto session = std::make_shared<SSU2Session> (*this);
-				session->SetRemoteEndpoint (senderEndpoint);
-				session->ProcessFirstIncomingMessage (connID, buf, len);
+				auto queueSize = m_ReceivedPacketsQueue.size ();
+				if (queueSize < SSU2_STOP_ACCEPTING_NEW_SESSIONS_QUEUE_SIZE)
+				{
+					auto session = std::make_shared<SSU2Session> (*this);
+					session->SetRemoteEndpoint (senderEndpoint);
+					session->ProcessFirstIncomingMessage (connID, buf, len);
+				}
+				else
+					LogPrint (eLogWarning, "SSU2: Incoming session dropped from ",  senderEndpoint, ". Queue size ", queueSize, " exceeds ", SSU2_STOP_ACCEPTING_NEW_SESSIONS_QUEUE_SIZE);
 			}
 			else
-				LogPrint (eLogError, "SSU2: Incoming packet received from invalid or banned endpoint ", senderEndpoint);
+				LogPrint (eLogWarning, "SSU2: Incoming packet received from invalid or banned endpoint ", senderEndpoint);
 		}
 	}
 

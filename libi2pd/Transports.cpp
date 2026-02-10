@@ -145,7 +145,7 @@ namespace transport
 		{
 			isHighBandwidth = router->IsHighBandwidth ();
 			isEligible =(bool)router->GetCompatibleTransports (true) && // reachable
-				router->GetCongestion () != i2p::data::RouterInfo::eRejectAll && // accepts tunnel
+				router->GetCongestion () < i2p::data::RouterInfo::eHighCongestion && // accepts tunnel and not overloaded
 				router->IsECIES () && router->GetVersion () >= NETDB_MIN_HIGHBANDWIDTH_VERSION; // not too old
 		}
 	}
@@ -506,7 +506,9 @@ namespace transport
 			try
 			{
 				auto r = netdb.FindRouter (ident);
-				if (r && (r->IsUnreachable () || !r->IsReachableFrom (i2p::context.GetRouterInfo ()))) return nullptr; // router found but non-reachable
+				if (r && (r->IsUnreachable () || !r->IsReachableFrom (i2p::context.GetRouterInfo ()) ||
+					(r->GetVersion () < i2p::data::NETDB_MIN_ALLOWED_VERSION && !r->IsHighBandwidth ())))
+					return nullptr; // router found but non-reachable or too old
 
 				peer = std::make_shared<Peer>(r, i2p::util::GetSecondsSinceEpoch ());
 				{
@@ -1017,6 +1019,20 @@ namespace transport
 		auto it = m_Peers.find (ident);
 		return it != m_Peers.end ();
 #endif
+	}
+
+	void Transports::UpdatePeerParams (std::shared_ptr<const i2p::data::RouterInfo> r)
+	{
+		if (!r) return;
+		std::shared_ptr<Peer> peer;
+		{
+			std::lock_guard<std::mutex> l(m_PeersMutex);
+			auto it = m_Peers.find (r->GetIdentHash ());
+			if (it != m_Peers.end ())
+				peer = it->second;
+		}
+		if (peer)
+			peer->UpdateParams (r);
 	}
 
 	void Transports::HandlePeerCleanupTimer (const boost::system::error_code& ecode)
